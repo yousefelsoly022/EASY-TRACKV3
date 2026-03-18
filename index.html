@@ -1562,7 +1562,7 @@ function setTheme(t,btn){
 
 // ══ PAYMOB INTEGRATION ═══════════════════════════════════
 var PM_CONFIG = {
-  apiKey:        'ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklrMWxjbU5vWVc1MElpd2ljSEp2Wm1sc1pWOXdheUk2TVRFME1qQTBNU3dpYm1GdFpTSTZJakUzTnpNM09EUTFPRGd1TkRFek1UUWlmUS4yZDJ1QnpBT0I3aGRSQm9TVkM2LV9fbDZ2QnlXWURvMk1MWlliT09BQi11SXZwQzVybXFOR3RGWDJ1N3VnTzBVbDF3YVVDa1RocjZjNW96b0ZvWWVTdw==',  // ← حط الـ API Key هنا
+  apiKey:        'YOUR_API_KEY_HERE',  // ← حط الـ API Key هنا
   integrationId: '5582850',
   merchantId:    '1142041',
   hmac:          '69C3019F1BF2D5DB577E4E63EB6B9E76',
@@ -1680,6 +1680,166 @@ window.addEventListener('message', function(e) {
   }
 });
 
+
+// ══ AUTH ══════════════════════════════════════════════════
+var _pendingPlan = null;
+
+function openAuthModal(plan) {
+  _pendingPlan = plan;
+  var label = document.getElementById('auth-plan-label');
+  if (label) label.textContent = plan === 'basic' ? 'BASIC · 1,600 EGP/شهر' : 'GROWTH · 5,200 EGP/شهر';
+  var m = document.getElementById('auth-modal');
+  m.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAuthModal() {
+  document.getElementById('auth-modal').style.display = 'none';
+  document.body.style.overflow = '';
+  _pendingPlan = null;
+}
+
+function switchAuthTab(tab) {
+  var isSignup = tab === 'signup';
+  document.getElementById('tab-signup').style.display     = isSignup ? 'block' : 'none';
+  document.getElementById('tab-login').style.display      = isSignup ? 'none'  : 'block';
+  document.getElementById('tab-signup-btn').style.background = isSignup ? 'linear-gradient(135deg,#e8b84b,#c8962a)' : 'transparent';
+  document.getElementById('tab-signup-btn').style.color      = isSignup ? '#05090f' : '#5a7090';
+  document.getElementById('tab-login-btn').style.background  = isSignup ? 'transparent' : 'linear-gradient(135deg,#e8b84b,#c8962a)';
+  document.getElementById('tab-login-btn').style.color       = isSignup ? '#5a7090' : '#05090f';
+}
+
+async function doSignup() {
+  var name  = document.getElementById('auth-name').value.trim();
+  var email = document.getElementById('auth-email-s').value.trim();
+  var pass  = document.getElementById('auth-pass-s').value;
+  var errEl = document.getElementById('auth-err-s');
+  var btn   = document.getElementById('auth-signup-btn');
+
+  errEl.style.display = 'none';
+  if (!name || !email || !pass) { errEl.textContent = 'برجاء ملء جميع الحقول'; errEl.style.display='block'; return; }
+  if (pass.length < 6)          { errEl.textContent = 'كلمة المرور 6 أحرف على الأقل'; errEl.style.display='block'; return; }
+
+  btn.textContent = '⏳ جاري التسجيل...'; btn.disabled = true;
+
+  try {
+    // Supabase Auth signup
+    var res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: pass })
+    });
+    var data = await res.json();
+
+    if (data.error) throw new Error(data.error.message || data.msg || 'خطأ في التسجيل');
+
+    var userId = data.user && data.user.id;
+    var authToken = data.access_token;
+
+    // Save user in clients table
+    await fetch(SUPABASE_URL + '/rest/v1/clients', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + authToken,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        name: name, email: email,
+        plan: _pendingPlan === 'growth' ? 'Growth' : 'Basic',
+        status: 'pending',
+        revenue: _pendingPlan === 'growth' ? 5200 : 1600
+      })
+    });
+
+    // Save session
+    window._etEmail = email;
+    window._etName  = name;
+    localStorage.setItem('et_pending_plan', _pendingPlan);
+    localStorage.setItem('et_auth_token', authToken);
+
+    // Close auth modal and open payment
+    closeAuthModal();
+    startPayment(_pendingPlan);
+
+  } catch(e) {
+    errEl.textContent = e.message || 'حصل خطأ — حاول تاني';
+    errEl.style.display = 'block';
+    btn.textContent = 'إنشاء حساب والدفع →'; btn.disabled = false;
+  }
+}
+
+async function doLogin() {
+  var email = document.getElementById('auth-email-l').value.trim();
+  var pass  = document.getElementById('auth-pass-l').value;
+  var errEl = document.getElementById('auth-err-l');
+  var btn   = document.getElementById('auth-login-btn');
+
+  errEl.style.display = 'none';
+  if (!email || !pass) { errEl.textContent = 'برجاء ملء جميع الحقول'; errEl.style.display='block'; return; }
+
+  btn.textContent = '⏳ جاري الدخول...'; btn.disabled = true;
+
+  try {
+    var res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: pass })
+    });
+    var data = await res.json();
+    if (data.error) throw new Error(data.error_description || 'بيانات غلط');
+
+    localStorage.setItem('et_auth_token', data.access_token);
+    localStorage.setItem('et_user_email', email);
+
+    closeAuthModal();
+    // Redirect to tool
+    window.location.href = 'https://yousefelsoly022.github.io/Pixel-Setup/pixel-config-generator-v3.html';
+
+  } catch(e) {
+    errEl.textContent = e.message || 'بيانات غلط';
+    errEl.style.display = 'block';
+    btn.textContent = 'دخول →'; btn.disabled = false;
+  }
+}
+
+// Override startPayment to require auth first
+var _origStartPayment = startPayment;
+startPayment = function(plan) {
+  var token = localStorage.getItem('et_auth_token');
+  if (!token) {
+    openAuthModal(plan);
+    return;
+  }
+  _origStartPayment(plan);
+};
+
+// Handle payment success → activate account
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.success) {
+    var token = localStorage.getItem('et_auth_token');
+    var plan  = localStorage.getItem('et_pending_plan');
+    if (token && plan) {
+      // Update status to active in Supabase
+      fetch(SUPABASE_URL + '/rest/v1/clients?email=eq.' + encodeURIComponent(window._etEmail || ''), {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ status: 'active' })
+      });
+      localStorage.removeItem('et_pending_plan');
+    }
+    setTimeout(function() {
+      window.location.href = 'https://yousefelsoly022.github.io/Pixel-Setup/pixel-config-generator-v3.html';
+    }, 1500);
+  }
+});
+
 </script>
 
 <div class="et-footer-banner">
@@ -1758,5 +1918,45 @@ window.addEventListener('message', function(e) {
 </div>
   </div>
 </div>
+
+<div id="auth-modal" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.85);align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#0b1628;border:1px solid rgba(232,184,75,.2);border-radius:24px;padding:40px 36px;max-width:440px;width:100%;position:relative;animation:gboxIn .4s ease;">
+
+    <!-- Close -->
+    <button onclick="closeAuthModal()" style="position:absolute;top:16px;left:16px;background:rgba(255,255,255,.08);border:none;color:#f0f4ff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:15px;">✕</button>
+
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-family:'Outfit',sans-serif;font-weight:900;font-size:24px;"><span style="color:#f0f4ff;">easy</span><span style="color:#e8b84b;">TRACK</span></div>
+      <div id="auth-plan-label" style="font-size:12px;color:#0ecfb0;font-family:'JetBrains Mono',monospace;letter-spacing:2px;margin-top:4px;"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="display:flex;background:#0f1e35;border-radius:10px;padding:4px;margin-bottom:24px;">
+      <button id="tab-signup-btn" onclick="switchAuthTab('signup')" style="flex:1;padding:9px;border:none;border-radius:8px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;background:linear-gradient(135deg,#e8b84b,#c8962a);color:#05090f;">حساب جديد</button>
+      <button id="tab-login-btn"  onclick="switchAuthTab('login')"  style="flex:1;padding:9px;border:none;border-radius:8px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;background:transparent;color:#5a7090;">تسجيل دخول</button>
+    </div>
+
+    <!-- Signup Form -->
+    <div id="tab-signup">
+      <input id="auth-name"     type="text"     placeholder="اسمك الكريم *"     style="width:100%;background:#0f1e35;border:1.5px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 16px;color:#f0f4ff;font-family:'Cairo',sans-serif;font-size:14px;outline:none;margin-bottom:10px;direction:rtl;">
+      <input id="auth-email-s"  type="email"    placeholder="البريد الإلكتروني *" style="width:100%;background:#0f1e35;border:1.5px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 16px;color:#f0f4ff;font-family:'Cairo',sans-serif;font-size:14px;outline:none;margin-bottom:10px;direction:ltr;text-align:right;">
+      <input id="auth-pass-s"   type="password" placeholder="كلمة المرور *"      style="width:100%;background:#0f1e35;border:1.5px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 16px;color:#f0f4ff;font-family:'Cairo',sans-serif;font-size:14px;outline:none;margin-bottom:16px;direction:ltr;text-align:right;">
+      <div id="auth-err-s" style="display:none;color:#f87171;font-size:12px;margin-bottom:12px;padding:10px;background:rgba(248,113,113,.08);border-radius:8px;"></div>
+      <button id="auth-signup-btn" onclick="doSignup()" style="width:100%;background:linear-gradient(135deg,#e8b84b,#c8962a);color:#05090f;border:none;border-radius:14px;padding:15px;font-family:'Cairo',sans-serif;font-size:15px;font-weight:900;cursor:pointer;">إنشاء حساب والدفع →</button>
+    </div>
+
+    <!-- Login Form -->
+    <div id="tab-login" style="display:none;">
+      <input id="auth-email-l" type="email"    placeholder="البريد الإلكتروني" style="width:100%;background:#0f1e35;border:1.5px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 16px;color:#f0f4ff;font-family:'Cairo',sans-serif;font-size:14px;outline:none;margin-bottom:10px;direction:ltr;text-align:right;">
+      <input id="auth-pass-l"  type="password" placeholder="كلمة المرور"      style="width:100%;background:#0f1e35;border:1.5px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 16px;color:#f0f4ff;font-family:'Cairo',sans-serif;font-size:14px;outline:none;margin-bottom:16px;direction:ltr;text-align:right;">
+      <div id="auth-err-l" style="display:none;color:#f87171;font-size:12px;margin-bottom:12px;padding:10px;background:rgba(248,113,113,.08);border-radius:8px;"></div>
+      <button id="auth-login-btn" onclick="doLogin()" style="width:100%;background:linear-gradient(135deg,#e8b84b,#c8962a);color:#05090f;border:none;border-radius:14px;padding:15px;font-family:'Cairo',sans-serif;font-size:15px;font-weight:900;cursor:pointer;">دخول →</button>
+      <div style="text-align:center;margin-top:14px;font-size:12px;color:#5a7090;">مش عندك حساب؟ <a href="#" onclick="switchAuthTab('signup')" style="color:#e8b84b;text-decoration:none;">سجّل دلوقتي</a></div>
+    </div>
+
+  </div>
+</div>
+
 </body>
 </html>
