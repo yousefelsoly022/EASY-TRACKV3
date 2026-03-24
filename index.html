@@ -874,6 +874,10 @@ html[data-t="light"] .hero-badge       { background:#F3F4F6 !important; color:#3
 }
 
 </style>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div id="et-splash">
@@ -1450,9 +1454,38 @@ function switchTabDirect(id) {
   switchTab(id, btn);
 }
 
-var SUPABASE_URL = "https://itrzwmhwqplkjunbonov.supabase.co";
-var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml0cnp3bWh3cXBsa2p1bmJvbm92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyODc1OTQsImV4cCI6MjA4ODg2MzU5NH0.U_yTG7gP8XIdbImhmKLbHJ2UML86tk3Hl_-0252m-bE";
 
+// ══ FIREBASE ═══════════════════════════════════════════════
+var FB_CONFIG = {
+  apiKey:            "AIzaSyDcnFOWldXptsrbAUoPnZqW7w2qYVf_YnQ",
+  authDomain:        "easytrack-137d4.firebaseapp.com",
+  projectId:         "easytrack-137d4",
+  storageBucket:     "easytrack-137d4.firebasestorage.app",
+  messagingSenderId: "976141198118",
+  appId:             "1:976141198118:web:763607661ae0cccb0e57e7"
+};
+if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+var db   = firebase.firestore();
+var auth = firebase.auth();
+
+/*
+ * ══════════════════════════════════════════════════════════════
+ * FIRESTORE SECURITY RULES
+ * انسخ الكود ده وحطه في Firebase Console:
+ * Firebase Console → Firestore Database → Rules
+ * ══════════════════════════════════════════════════════════════
+ *
+ * rules_version = '2';
+ * service cloud.firestore {
+ *   match /databases/{database}/documents {
+ *     match /{document=**} {
+ *       allow read, write: if request.time < timestamp.date(2026, 4, 22);
+ *     }
+ *   }
+ * }
+ *
+ * ══════════════════════════════════════════════════════════════
+ */
 async function handleAuth() {
   var isSignup = document.getElementById('tab-signup').style.display !== 'none';
   
@@ -1562,7 +1595,7 @@ function setTheme(t,btn){
 
 // ══ PAYMOB INTEGRATION ═══════════════════════════════════
 var PM_CONFIG = {
-  apiKey:        'ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklrMWxjbU5vWVc1MElpd2ljSEp2Wm1sc1pWOXdheUk2TVRFME1qQTBNU3dpYm1GdFpTSTZJakUzTnpNM09EUTFPRGd1TkRFek1UUWlmUS4yZDJ1QnpBT0I3aGRSQm9TVkM2LV9fbDZ2QnlXWURvMk1MWlliT09BQi11SXZwQzVybXFOR3RGWDJ1N3VnTzBVbDF3YVVDa1RocjZjNW96b0ZvWWVTdw==',  // ← حط الـ API Key هنا
+  apiKey:        'YOUR_API_KEY_HERE',  // ← حط الـ API Key هنا
   integrationId: '5582850',
   merchantId:    '1142041',
   hmac:          '69C3019F1BF2D5DB577E4E63EB6B9E76',
@@ -1717,55 +1750,32 @@ async function doSignup() {
   var btn   = document.getElementById('auth-signup-btn');
 
   errEl.style.display = 'none';
-  if (!name || !email || !pass) { errEl.textContent = 'برجاء ملء جميع الحقول'; errEl.style.display='block'; return; }
-  if (pass.length < 6)          { errEl.textContent = 'كلمة المرور 6 أحرف على الأقل'; errEl.style.display='block'; return; }
+  if (!name || !email || !pass) { errEl.textContent='برجاء ملء جميع الحقول'; errEl.style.display='block'; return; }
+  if (pass.length < 6) { errEl.textContent='كلمة المرور 6 أحرف على الأقل'; errEl.style.display='block'; return; }
 
   btn.textContent = '⏳ جاري التسجيل...'; btn.disabled = true;
 
   try {
-    // Supabase Auth signup
-    var res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: pass })
-    });
-    var data = await res.json();
+    var cred = await auth.createUserWithEmailAndPassword(email, pass);
+    var uid  = cred.user.uid;
 
-    if (data.error) throw new Error(data.error.message || data.msg || 'خطأ في التسجيل');
-
-    var userId = data.user && data.user.id;
-    var authToken = data.access_token;
-
-    // Save user in clients table
-    await fetch(SUPABASE_URL + '/rest/v1/clients', {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': 'Bearer ' + authToken,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify({
-        name: name, email: email,
-        plan: _pendingPlan === 'growth' ? 'Growth' : 'Basic',
-        status: 'pending',
-        revenue: _pendingPlan === 'growth' ? 5200 : 1600
-      })
+    await db.collection('clients').doc(uid).set({
+      id: uid, name:name, email:email,
+      plan:'Basic', status:'pending', projects_used:0,
+      created_at: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    // Save session
     window._etEmail = email;
     window._etName  = name;
-    localStorage.setItem('et_pending_plan', _pendingPlan);
-    localStorage.setItem('et_auth_token', authToken);
+    localStorage.setItem('et_auth_uid', uid);
+    localStorage.setItem('et_pending_plan', _pendingPlan || 'basic');
 
-    // Close auth modal and open payment
     closeAuthModal();
-    startPayment(_pendingPlan);
+    startPayment(_pendingPlan || 'basic');
 
   } catch(e) {
-    errEl.textContent = e.message || 'حصل خطأ — حاول تاني';
-    errEl.style.display = 'block';
+    var msg = e.code === 'auth/email-already-in-use' ? 'البريد ده مسجّل بالفعل — سجّل دخول' : (e.message || 'خطأ');
+    errEl.textContent = msg; errEl.style.display = 'block';
     btn.textContent = 'إنشاء حساب والدفع →'; btn.disabled = false;
   }
 }
@@ -1777,29 +1787,38 @@ async function doLogin() {
   var btn   = document.getElementById('auth-login-btn');
 
   errEl.style.display = 'none';
-  if (!email || !pass) { errEl.textContent = 'برجاء ملء جميع الحقول'; errEl.style.display='block'; return; }
+  if (!email || !pass) { errEl.textContent='برجاء ملء جميع الحقول'; errEl.style.display='block'; return; }
 
   btn.textContent = '⏳ جاري الدخول...'; btn.disabled = true;
 
   try {
-    var res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: pass })
-    });
-    var data = await res.json();
-    if (data.error) throw new Error(data.error_description || 'بيانات غلط');
+    var cred = await auth.signInWithEmailAndPassword(email, pass);
+    var uid  = cred.user.uid;
 
-    localStorage.setItem('et_auth_token', data.access_token);
-    localStorage.setItem('et_user_email', email);
+    var doc = await db.collection('clients').doc(uid).get();
+    if (!doc.exists) throw new Error('الحساب مش موجود');
 
+    var client = doc.data();
+    client.id  = uid;
+
+    if (!client.status || client.status === 'pending') {
+      closeAuthModal();
+      startPayment(_pendingPlan || 'basic');
+      return;
+    }
+
+    localStorage.setItem('et_user', JSON.stringify(client));
     closeAuthModal();
-    // Redirect to tool
-    window.location.href = 'https://yousefelsoly022.github.io/Pixel-Setup/pixel-config-generator-v3.html';
+    window.location.href = 'pixel-config-generator-v3.html';
 
   } catch(e) {
-    errEl.textContent = e.message || 'بيانات غلط';
-    errEl.style.display = 'block';
+    var msg = (
+      e.code === 'auth/wrong-password'     ||
+      e.code === 'auth/user-not-found'     ||
+      e.code === 'auth/invalid-credential' ||
+      e.code === 'auth/invalid-email'
+    ) ? 'البريد أو كلمة المرور غلط' : (e.message || 'خطأ');
+    errEl.textContent = msg; errEl.style.display = 'block';
     btn.textContent = 'دخول →'; btn.disabled = false;
   }
 }
@@ -1818,25 +1837,21 @@ startPayment = function(plan) {
 // Handle payment success → activate account
 window.addEventListener('message', function(e) {
   if (e.data && e.data.success) {
-    var token = localStorage.getItem('et_auth_token');
-    var plan  = localStorage.getItem('et_pending_plan');
-    if (token && plan) {
-      // Update status to active in Supabase
-      fetch(SUPABASE_URL + '/rest/v1/clients?email=eq.' + encodeURIComponent(window._etEmail || ''), {
-        method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ status: 'active' })
+    var uid  = localStorage.getItem('et_auth_uid');
+    var plan = localStorage.getItem('et_pending_plan') || 'basic';
+    if (uid) {
+      // Activate account in Firestore
+      db.collection('clients').doc(uid).update({
+        status: 'active',
+        plan:   plan.charAt(0).toUpperCase() + plan.slice(1)
+      }).then(function() {
+        localStorage.removeItem('et_pending_plan');
+        localStorage.removeItem('et_auth_uid');
+        setTimeout(function() {
+          window.location.href = 'pixel-config-generator-v3.html';
+        }, 1500);
       });
-      localStorage.removeItem('et_pending_plan');
     }
-    setTimeout(function() {
-      window.location.href = 'https://yousefelsoly022.github.io/Pixel-Setup/pixel-config-generator-v3.html';
-    }, 1500);
   }
 });
 
